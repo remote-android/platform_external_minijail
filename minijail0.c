@@ -75,6 +75,22 @@ static void add_binding(struct minijail *j, char *arg)
 	}
 }
 
+static void add_rlimit(struct minijail *j, char *arg)
+{
+	char *type = strtok(arg, ",");
+	char *cur = strtok(NULL, ",");
+	char *max = strtok(NULL, ",");
+	if (!type || !cur || !max) {
+		fprintf(stderr, "Bad rlimit '%s'.\n", arg);
+		exit(1);
+	}
+	if (minijail_rlimit(j, atoi(type), atoi(cur), atoi(max))) {
+		fprintf(stderr, "minijail_rlimit '%s,%s,%s' failed.\n",
+			type, cur, max);
+		exit(1);
+	}
+}
+
 static void add_mount(struct minijail *j, char *arg)
 {
 	char *src = strtok(arg, ",");
@@ -111,12 +127,12 @@ static void usage(const char *progn)
 {
 	size_t i;
 	/* clang-format off */
-	printf("Usage: %s [-GhHiIKlLnNprstUvyYz]\n"
+	printf("Usage: %s [-GhHiIKlLnNprRstUvyYz]\n"
 	       "  [-a <table>]\n"
 	       "  [-b <src>,<dest>[,<writeable>]] [-k <src>,<dest>,<type>[,<flags>][,<data>]]\n"
 	       "  [-c <caps>] [-C <dir>] [-P <dir>] [-e[file]] [-f <file>] [-g <group>]\n"
 	       "  [-m[<uid> <loweruid> <count>]*] [-M[<gid> <lowergid> <count>]*]\n"
-	       "  [-S <file>] [-t[size]] [-T <type>] [-u <user>] [-V <file>]\n"
+	       "  [-R <type,cur,max>] [-S <file>] [-t[size]] [-T <type>] [-u <user>] [-V <file>]\n"
 	       "  <program> [args...]\n"
 	       "  -a <table>:   Use alternate syscall table <table>.\n"
 	       "  -b:           Bind <src> to <dest> in chroot.\n"
@@ -163,6 +179,7 @@ static void usage(const char *progn)
 	       "  -N:           Enter a new cgroup namespace.\n"
 	       "  -p:           Enter new pid namespace (implies -vr).\n"
 	       "  -r:           Remount /proc read-only (implies -v).\n"
+	       "  -R:           Set rlimits, can be specified multiple times.\n"
 	       "  -s:           Use seccomp mode 1 (not the same as -S).\n"
 	       "  -S <file>:    Set seccomp filter using <file>.\n"
 	       "                E.g., '-S /usr/share/filters/<prog>.$(uname -m)'.\n"
@@ -212,7 +229,7 @@ static int parse_args(struct minijail *j, int argc, char *argv[],
 	const char *filter_path;
 
 	const char *optstring =
-	    "+u:g:sS:c:C:P:b:V:f:m::M::k:a:e::T:vrGhHinNplLt::IUKwyYz";
+	    "+u:g:sS:c:C:P:b:V:f:m::M::k:a:e::R:T:vrGhHinNplLt::IUKwyYz";
 	int longoption_index = 0;
 	/* clang-format off */
 	const struct option long_options[] = {
@@ -430,6 +447,9 @@ static int parse_args(struct minijail *j, int argc, char *argv[],
 				exit(1);
 			}
 			break;
+		case 'R':
+			add_rlimit(j, optarg);
+			break;
 		case 'T':
 			if (!strcmp(optarg, "static"))
 				*elftype = ELFSTATIC;
@@ -503,8 +523,46 @@ static int parse_args(struct minijail *j, int argc, char *argv[],
 		free((void *)filter_path);
 	}
 
+	/*
+	 * There should be at least one additional unparsed argument: the
+	 * executable name.
+	 */
 	if (argc == optind) {
 		usage(argv[0]);
+		exit(1);
+	}
+
+	if (*elftype == ELFERROR) {
+		/*
+		 * -T was not specified.
+		 * Get the path to the program adjusted for changing root.
+		 */
+		char *program_path =
+		    minijail_get_original_path(j, argv[optind]);
+
+		/* Check that we can access the target program. */
+		if (access(program_path, X_OK)) {
+			fprintf(stderr,
+				"Target program '%s' is not accessible.\n",
+				argv[optind]);
+			exit(1);
+		}
+
+		/* Check if target is statically or dynamically linked. */
+		*elftype = get_elf_linkage(program_path);
+		free(program_path);
+	}
+
+	/*
+	 * Setting capabilities need either a dynamically-linked binary, or the
+	 * use of ambient capabilities for them to be able to survive an
+	 * execve(2).
+	 */
+	if (caps && *elftype == ELFSTATIC && !ambient_caps) {
+		fprintf(stderr, "Can't run statically-linked binaries with "
+				"capabilities (-c) without also setting "
+				"ambient capabilities. Try passing "
+				"--ambient.\n");
 		exit(1);
 	}
 
@@ -520,26 +578,6 @@ int main(int argc, char *argv[])
 	int consumed = parse_args(j, argc, argv, &exit_immediately, &elftype);
 	argc -= consumed;
 	argv += consumed;
-
-	if (elftype == ELFERROR) {
-		/*
-		 * -T was not specified.
-		 * Get the path to the program adjusted for changing root.
-		 */
-		char *program_path = minijail_get_original_path(j, argv[0]);
-
-		/* Check that we can access the target program. */
-		if (access(program_path, X_OK)) {
-			fprintf(stderr,
-				"Target program '%s' is not accessible.\n",
-				argv[0]);
-			return 1;
-		}
-
-		/* Check if target is statically or dynamically linked. */
-		elftype = get_elf_linkage(program_path);
-		free(program_path);
-	}
 
 	if (elftype == ELFSTATIC) {
 		/*
