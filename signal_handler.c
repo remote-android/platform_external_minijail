@@ -26,19 +26,18 @@ struct local_sigsys {
 	unsigned int	arch;
 };
 
-void log_sigsys_handler(int nr, siginfo_t *info, void *void_context)
+void log_sigsys_handler(int sig attribute_unused, siginfo_t *info,
+			void *void_context attribute_unused)
 {
 	struct local_sigsys sigsys;
 	const char *syscall_name;
 	memcpy(&sigsys, &info->_sifields, sizeof(sigsys));
 	syscall_name = lookup_syscall_name(sigsys.nr);
 
-	(void) void_context;
-
 	if (syscall_name)
 		die("blocked syscall: %s", syscall_name);
 	else
-		die("blocked syscall: %d", nr);
+		die("blocked syscall: %d", sigsys.nr);
 
 	/*
 	 * We trapped on a syscall that should have killed the process.
