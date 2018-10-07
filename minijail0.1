@@ -77,9 +77,32 @@ host kernel or something like 32/64-bit compatibility issues exist.)
 \fB-i\fR
 Exit immediately after \fBfork\fR(2).  The jailed process will keep running in
 the background.
+
+Normally minijail will fork+exec the specified \fIprogram\fR so that it can set
+up the right security settings in the new child process. The initial minijail
+process will stay resident and wait for the \fIprogram\fR to exit so the script
+that ran minijail will correctly block (e.g. standalone scripts). Specifying
+\fB-i\fR makes that initial process exit immediately and free up the resources.
+
+This option is recommended for daemons and init services when you want to
+background the long running \fIprogram\fR.
 .TP
 \fB-I\fR
 Run \fIprogram\fR as init (pid 1) inside a new pid namespace (implies \fB-p\fR).
+
+Most programs don't expect to run as an init which is why minijail will do it
+for you by default. Basically, the \fIprogram\fR needs to reap any processes it
+forks to avoid leaving zombies behind. Signal handling needs care since the
+kernel will mask all signals that don't have handlers registered (all default
+handlers are ignored and cannot be changed).
+
+This means a minijail process (acting as init) will remain resident by default.
+While using \fB-I\fR is recommended when possible, strict review is required to
+make sure the \fIprogram\fR continues to work as expected.
+
+\fB-i\fR and \fB-I\fR may be safely used together. The \fB-i\fR option controls
+the first minijail process outside of the pid namespace while the \fB-I\fR
+option controls the minijail process inside of the pid namespace.
 .TP
 \fB-k <src>,<dest>,<type>[,<flags>[,<data>]]\fR
 Mount \fIsrc\fR, a \fItype\fR filesystem, at \fIdest\fR.  If a chroot or pivot
@@ -160,6 +183,12 @@ Run inside a new PID namespace. This option will make it impossible for the
 program to see or affect processes that are not its descendants. This implies
 \fB-v\fR and \fB-r\fR, since otherwise the process can see outside its namespace
 by inspecting /proc.
+
+If the \fIprogram\fR exits, all of its children will be killed immediately by
+the kernel. If you need to daemonize or background things, use the \fB-i\fR
+option.
+
+See \fBpid_namespaces\fR(7) for more info.
 .TP
 \fB-P <dir>\fR
 Set \fIdir\fR as the root fs using \fBpivot_root\fR. Implies \fB-v\fR, not
@@ -261,17 +290,40 @@ Set up a minimalistic mount namespace.  Equivalent to \fB-v -P /var/empty
 -b /,/ -b /proc,/proc -t -r --mount-dev\fR.
 .SH IMPLEMENTATION
 This program is broken up into two parts: \fBminijail0\fR (the frontend) and a helper
-library called \fBlibminijailpreload\fR. Some jailings can only be achieved from
-the process to which they will actually apply - specifically capability use
-(since capabilities are not inherited to an exec'd process unless the exec'd
-process has POSIX file capabilities), seccomp (since we can't exec() once we're
-seccomp'd), and ptrace-disable (which is always cleared on exec()).
+library called \fBlibminijailpreload\fR.  Some jailings can only be achieved
+from the process to which they will actually apply:
+
+.IP
+\[bu] capability use (without using ambient capabilities): non-ambient
+capabilities are not inherited across \fBexecve\fR(2) unless the file being
+executed has POSIX file capabilities.  Ambient capabilities (the
+\fB--ambient\fR flag) fix capability inheritance across \fBexecve\fR(2) to
+avoid the need for file capabilities.
+
+\[bu] seccomp: a meaningful seccomp filter policy should disallow
+\fBexecve\fR(2), to prevent a compromised process from executing a different
+binary.  However, this would prevent the seccomp policy from being applied
+before \fBexecve\fR(2).
+.RE
 
 To this end, \fBlibminijailpreload\fR is forcibly loaded into all
-dynamically-linked target programs if any of these restrictions are in effect;
-we pass the specific restrictions in an environment variable which the preloaded
-library looks for. The forcibly-loaded library then applies the restrictions
-to the newly-loaded program.
+dynamically-linked target programs by default; we pass the specific
+restrictions in an environment variable which the preloaded library looks for.
+The forcibly-loaded library then applies the restrictions to the newly-loaded
+program.
+
+This behavior can be disabled by the use of the \fB-T static\fR flag.  There
+are other cases in which the use of this flag might be useful:
+
+.IP
+\[bu] When \fIprogram\fR is linked against a different version of \fBlibc.so\fR
+than \fBlibminijailpreload.so\fR.
+
+\[bu] When \fBexecve\fR(2) has side-effects that interact badly with the
+jailing process.  If the system uses SELinux, \fBexecve\fR(2) can cause an
+automatic domain transition, which would then require that the target domain
+allows the operations to jail \fIprogram\fR.
+.RE
 
 .SH AUTHOR
 The Chromium OS Authors <chromiumos-dev@chromium.org>
