@@ -179,6 +179,7 @@ struct minijail {
 	char *uidmap;
 	char *gidmap;
 	char *hostname;
+	char *preload_path;
 	size_t filter_len;
 	struct sock_fprog *filter_prog;
 	char *alt_syscall_table;
@@ -225,6 +226,9 @@ void minijail_preenter(struct minijail *j)
 {
 	j->flags.vfs = 0;
 	j->flags.enter_vfs = 0;
+	j->flags.ns_cgroups = 0;
+	j->flags.net = 0;
+	j->flags.uts = 0;
 	j->flags.remount_proc_ro = 0;
 	j->flags.pids = 0;
 	j->flags.do_init = 0;
@@ -243,6 +247,9 @@ void minijail_preexec(struct minijail *j)
 {
 	int vfs = j->flags.vfs;
 	int enter_vfs = j->flags.enter_vfs;
+	int ns_cgroups = j->flags.ns_cgroups;
+	int net = j->flags.net;
+	int uts = j->flags.uts;
 	int remount_proc_ro = j->flags.remount_proc_ro;
 	int userns = j->flags.userns;
 	if (j->user)
@@ -251,11 +258,17 @@ void minijail_preexec(struct minijail *j)
 	if (j->suppl_gid_list)
 		free(j->suppl_gid_list);
 	j->suppl_gid_list = NULL;
+	if (j->preload_path)
+		free(j->preload_path);
+	j->preload_path = NULL;
 	free_mounts_list(j);
 	memset(&j->flags, 0, sizeof(j->flags));
 	/* Now restore anything we meant to keep. */
 	j->flags.vfs = vfs;
 	j->flags.enter_vfs = enter_vfs;
+	j->flags.ns_cgroups = ns_cgroups;
+	j->flags.net = net;
+	j->flags.uts = uts;
 	j->flags.remount_proc_ro = remount_proc_ro;
 	j->flags.userns = userns;
 	/* Note, |pids| will already have been used before this call. */
@@ -835,6 +848,16 @@ int API minijail_preserve_fd(struct minijail *j, int parent_fd, int child_fd)
 	return 0;
 }
 
+int API minijail_set_preload_path(struct minijail *j, const char *preload_path)
+{
+	if (j->preload_path)
+		return -EINVAL;
+	j->preload_path = strdup(preload_path);
+	if (!j->preload_path)
+		return -ENOMEM;
+	return 0;
+}
+
 static void clear_seccomp_options(struct minijail *j)
 {
 	j->flags.seccomp_filter = 0;
@@ -1067,6 +1090,7 @@ int minijail_unmarshal(struct minijail *j, char *serialized, size_t length)
 	length -= sizeof(*j);
 
 	/* Potentially stale pointers not used as signals. */
+	j->preload_path = NULL;
 	j->pid_file_path = NULL;
 	j->uidmap = NULL;
 	j->gidmap = NULL;
@@ -2223,24 +2247,27 @@ int API minijail_to_fd(struct minijail *j, int fd)
 	return 0;
 }
 
-int setup_preload(void)
+static int setup_preload(const struct minijail *j attribute_unused,
+			 const char *oldenv attribute_unused)
 {
 #if defined(__ANDROID__)
 	/* Don't use LDPRELOAD on Android. */
 	return 0;
 #else
-	char *oldenv = getenv(kLdPreloadEnvVar) ? : "";
-	char *newenv = malloc(strlen(oldenv) + 2 + strlen(PRELOADPATH));
-	if (!newenv)
-		return -ENOMEM;
+	const char *preload_path = j->preload_path ?: PRELOADPATH;
+	char *newenv = NULL;
+
+	if (!oldenv)
+		oldenv = "";
 
 	/* Only insert a separating space if we have something to separate... */
-	sprintf(newenv, "%s%s%s", oldenv, strlen(oldenv) ? " " : "",
-		PRELOADPATH);
+	if (asprintf(&newenv, "%s=%s%s%s", kLdPreloadEnvVar, oldenv,
+		     oldenv[0] != '\0' ? " " : "", preload_path) < 0) {
+		return -ENOMEM;
+	}
 
-	/* setenv() makes a copy of the string we give it. */
-	setenv(kLdPreloadEnvVar, newenv, 1);
-	free(newenv);
+	/* putenv(3) will now own the string. */
+	putenv(newenv);
 	return 0;
 #endif
 }
@@ -2497,7 +2524,7 @@ static int minijail_run_internal(struct minijail *j,
 				return -ENOMEM;
 		}
 
-		if (setup_preload())
+		if (setup_preload(j, oldenv))
 			return -EFAULT;
 	}
 
@@ -2953,6 +2980,8 @@ void API minijail_destroy(struct minijail *j)
 		free(j->gidmap);
 	if (j->hostname)
 		free(j->hostname);
+	if (j->preload_path)
+		free(j->preload_path);
 	if (j->alt_syscall_table)
 		free(j->alt_syscall_table);
 	for (i = 0; i < j->cgroup_count; ++i)
