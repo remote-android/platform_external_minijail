@@ -48,31 +48,6 @@
 # define PR_ALT_SYSCALL 0x43724f53
 #endif
 
-/* Seccomp filter related flags. */
-#ifndef PR_SET_NO_NEW_PRIVS
-# define PR_SET_NO_NEW_PRIVS 38
-#endif
-
-#ifndef SECCOMP_MODE_FILTER
-#define SECCOMP_MODE_FILTER 2 /* Uses user-supplied filter. */
-#endif
-
-#ifndef SECCOMP_SET_MODE_STRICT
-# define SECCOMP_SET_MODE_STRICT 0
-#endif
-#ifndef SECCOMP_SET_MODE_FILTER
-# define SECCOMP_SET_MODE_FILTER 1
-#endif
-
-#ifndef SECCOMP_FILTER_FLAG_TSYNC
-# define SECCOMP_FILTER_FLAG_TSYNC 1
-#endif
-
-#ifndef SECCOMP_FILTER_FLAG_SPEC_ALLOW
-# define SECCOMP_FILTER_FLAG_SPEC_ALLOW (1 << 2)
-#endif
-/* End seccomp filter related flags. */
-
 /* New cgroup namespace might not be in linux-headers yet. */
 #ifndef CLONE_NEWCGROUP
 # define CLONE_NEWCGROUP 0x02000000
@@ -1001,9 +976,8 @@ static int seccomp_should_use_filters(struct minijail *j)
 	}
 	if (j->flags.seccomp_filter_allow_speculation) {
 		/* Is the SPEC_ALLOW flag supported? */
-		if (sys_seccomp(SECCOMP_SET_MODE_FILTER,
-				SECCOMP_FILTER_FLAG_SPEC_ALLOW, NULL) == -1 &&
-		    errno == EINVAL) {
+		if (!seccomp_filter_flags_available(
+			SECCOMP_FILTER_FLAG_SPEC_ALLOW)) {
 			warn("allowing speculative execution on seccomp "
 			     "processes not supported");
 			j->flags.seccomp_filter_allow_speculation = 0;
@@ -1558,6 +1532,11 @@ static int mount_dev(char **dev_path_ret)
 		if (ret)
 			goto done;
 	}
+
+	/* Create empty dir for glibc shared mem APIs. */
+	ret = mkdirat(dev_fd, "shm", 01777);
+	if (ret)
+		goto done;
 
 	/* Restore old mask. */
  done:
@@ -2550,6 +2529,10 @@ static int close_open_fds(int *inheritable_fds, size_t size)
 static int redirect_fds(struct minijail *j)
 {
 	for (size_t i = 0; i < j->preserved_fd_count; i++) {
+		if (j->preserved_fds[i].parent_fd ==
+		    j->preserved_fds[i].child_fd) {
+			continue;
+		}
 		if (dup2(j->preserved_fds[i].parent_fd,
 			 j->preserved_fds[i].child_fd) == -1) {
 			return -1;
@@ -2614,10 +2597,10 @@ static void setup_child_std_fds(struct minijail *j,
 	};
 
 	for (size_t i = 0; i < ARRAY_SIZE(fd_map); ++i) {
-		if (fd_map[i].from != -1) {
-			if (dup2(fd_map[i].from, fd_map[i].to) == -1)
-				die("failed to set up %s pipe", fd_map[i].name);
-		}
+		if (fd_map[i].from == -1 || fd_map[i].from == fd_map[i].to)
+			continue;
+		if (dup2(fd_map[i].from, fd_map[i].to) == -1)
+			die("failed to set up %s pipe", fd_map[i].name);
 	}
 
 	/* Close temporary pipe file descriptors. */
