@@ -1580,6 +1580,7 @@ static void set_seccomp_filter(const struct minijail *j)
 	/*
 	 * Install the syscall filter.
 	 */
+#if 0 // HACKED
 	if (j->flags.seccomp_filter) {
 		if (j->flags.seccomp_filter_tsync) {
 			if (sys_seccomp(SECCOMP_SET_MODE_FILTER,
@@ -1594,6 +1595,7 @@ static void set_seccomp_filter(const struct minijail *j)
 			}
 		}
 	}
+#endif
 }
 
 static pid_t forward_pid = -1;
