@@ -20,17 +20,6 @@
 
 namespace {
 
-// TODO(jorgelo): Android unit tests don't currently support data files.
-// Re-enable by creating a temporary policy file at runtime.
-#if !defined(__ANDROID__)
-
-std::string source_path(std::string file) {
-  std::string srcdir = getenv("SRC") ? : ".";
-  return srcdir + "/" + file;
-}
-
-#endif
-
 // Simple C++ -> C wrappers to simplify test code.
 
 enum ret_trap {
@@ -45,7 +34,7 @@ enum use_logging {
 };
 
 int test_compile_filter(
-    std::string filename,
+    const std::string& filename,
     FILE* policy_file,
     struct sock_fprog* prog,
     enum block_action action = ACTION_RET_KILL,
@@ -90,7 +79,7 @@ int test_compile_file(
 struct filter_block* test_compile_policy_line(
     struct parser_state* state,
     int nr,
-    std::string policy_line,
+    const std::string& policy_line,
     unsigned int label_id,
     struct bpf_labels* labels,
     enum block_action action = ACTION_RET_KILL) {
@@ -511,7 +500,7 @@ TEST_F(ArgFilterTest, arg0_equals_log) {
 }
 
 TEST_F(ArgFilterTest, arg0_short_gt_ge_comparisons) {
-  for (std::string fragment :
+  for (const std::string fragment :
        {"arg1 < 0xff", "arg1 <= 0xff", "arg1 > 0xff", "arg1 >= 0xff"}) {
     struct filter_block* block =
         test_compile_policy_line(&state_, nr_, fragment, id_, &labels_);
@@ -553,7 +542,7 @@ TEST_F(ArgFilterTest, arg0_short_gt_ge_comparisons) {
 
 #if defined(BITS64)
 TEST_F(ArgFilterTest, arg0_long_gt_ge_comparisons) {
-  for (std::string fragment :
+  for (const std::string fragment :
        {"arg1 < 0xbadc0ffee0ddf00d", "arg1 <= 0xbadc0ffee0ddf00d",
         "arg1 > 0xbadc0ffee0ddf00d", "arg1 >= 0xbadc0ffee0ddf00d"}) {
     struct filter_block* block =

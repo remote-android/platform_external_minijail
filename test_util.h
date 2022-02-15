@@ -57,6 +57,13 @@ using ScopedConfigEntry =
  * Returns a FILE* that contains @content.
  */
 
-FILE *write_to_pipe(std::string content);
+FILE *write_to_pipe(const std::string& content);
+
+/*
+ * source_path: return the path to a test fixture located in the current
+ * source tree. This uses the `SRC` environment variable as the root of the
+ * tree, falling back to the current directory.
+ */
+std::string source_path(const std::string& file);
 
 #endif /* _TEST_UTIL_H_ */

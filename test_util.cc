@@ -14,7 +14,7 @@
 
 #define MAX_PIPE_CAPACITY (4096)
 
-FILE *write_to_pipe(std::string content)
+FILE *write_to_pipe(const std::string& content)
 {
 	int pipefd[2];
 	if (pipe(pipefd) == -1) {
@@ -52,4 +52,9 @@ FILE *write_to_pipe(std::string content)
 
 	close(pipefd[1]);
 	return fdopen(pipefd[0], "r");
+}
+
+std::string source_path(const std::string& file) {
+	std::string srcdir = getenv("SRC") ? : ".";
+	return srcdir + "/" + file;
 }
