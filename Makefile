@@ -17,15 +17,35 @@ BUILD_STATIC_LIBS ?= no
 DEFAULT_PIVOT_ROOT ?= /var/empty
 CPPFLAGS += -DDEFAULT_PIVOT_ROOT='"$(DEFAULT_PIVOT_ROOT)"'
 
+# These are configurable strictness settings. Not every use case for Minijail
+# has the same requirements.
+
+# Allow seccomp to fail without a warning. You probably don't want this.
 ifeq ($(USE_seccomp),no)
 CPPFLAGS += -DUSE_SECCOMP_SOFTFAIL
 endif
 
+# Prevent Minijail configuration files from residing in a noexec
+# filesystem.
+#
+# The rationale here is that a configuration file that controls how a program
+# executes should be subject to the same restrictions as the executable it
+# controls. In essence, a configuration file should be considered to have as
+# much power as an executable. Files can only be executed from filesystems *not*
+# mounted as noexec, so configuration files should not reside in noexec
+# filesystems.
+#
+# For example, on ChromeOS executable filesystems are mounted read-only. Noexec
+# filesystems are allowed to be mounted read-write. If a configuration file
+# were allowed to reside in a noexec filesystem, an attacker would be able to
+# influence how a program is executed by modifying the configuration file.
 BLOCK_NOEXEC_CONF ?= no
 ifeq ($(BLOCK_NOEXEC_CONF),yes)
 CPPFLAGS += -DBLOCK_NOEXEC_CONF
 endif
 
+# Prevent Minijail configuration files from residing in a partition different
+# from the partition mounted at /. This is primarily used in ChromeOS.
 ENFORCE_ROOTFS_CONF ?= no
 ifeq ($(ENFORCE_ROOTFS_CONF),yes)
 CPPFLAGS += -DENFORCE_ROOTFS_CONF
@@ -38,6 +58,18 @@ CPPFLAGS += -DALLOW_DEBUG_LOGGING
 ifeq ($(SECCOMP_DEFAULT_RET_LOG),yes)
 CPPFLAGS += -DSECCOMP_DEFAULT_RET_LOG
 endif
+endif
+
+# Prevent Minijail from following symlinks when performing bind mounts.
+# BINDMOUNT_ALLOWED_PREFIXES allows some flexibility. This is especially useful
+# for directories that are not normally modifiable by non-root users.
+# If a process can modify these directories, they probably don't need to mess
+# with Minijail bind mounts to gain root privileges.
+BINDMOUNT_ALLOWED_PREFIXES ?= /dev,/sys
+CPPFLAGS += -DBINDMOUNT_ALLOWED_PREFIXES='"$(BINDMOUNT_ALLOWED_PREFIXES)"'
+BLOCK_SYMLINKS_IN_BINDMOUNT_PATHS ?= no
+ifeq ($(BLOCK_SYMLINKS_IN_BINDMOUNT_PATHS),yes)
+CPPFLAGS += -DBLOCK_SYMLINKS_IN_BINDMOUNT_PATHS
 endif
 
 ifeq ($(USE_ASAN),yes)
