@@ -460,6 +460,9 @@ cc_test {
         },
     },
     data: ["test/*"],
+    test_options: {
+        tags: ["no-remote"],
+    }
 }
 
 
