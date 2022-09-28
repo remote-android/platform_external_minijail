@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
+/* Copyright 2012 The ChromiumOS Authors
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
@@ -73,6 +73,15 @@
 	(MS_NOSUID | MS_NODEV | MS_NOEXEC | MS_NOATIME | MS_NODIRATIME |       \
 	 MS_RELATIME | MS_RDONLY)
 
+/*
+ * TODO(b/235960683): Drop this after CrOS upgrades to glibc >= 2.34
+ * because MS_NOSYMFOLLOW will be defined in sys/mount.h.
+ */
+#ifndef MS_NOSYMFOLLOW
+/* Added locally in kernels 4.x+. */
+#define MS_NOSYMFOLLOW 256
+#endif
+
 struct minijail_rlimit {
 	int type;
 	rlim_t cur;
@@ -119,46 +128,46 @@ struct minijail {
 	 * accounted for in minijail_pre{enter|exec}() below.
 	 */
 	struct {
-		int uid : 1;
-		int gid : 1;
-		int inherit_suppl_gids : 1;
-		int set_suppl_gids : 1;
-		int keep_suppl_gids : 1;
-		int use_caps : 1;
-		int capbset_drop : 1;
-		int set_ambient_caps : 1;
-		int vfs : 1;
-		int enter_vfs : 1;
-		int pids : 1;
-		int ipc : 1;
-		int uts : 1;
-		int net : 1;
-		int enter_net : 1;
-		int ns_cgroups : 1;
-		int userns : 1;
-		int disable_setgroups : 1;
-		int seccomp : 1;
-		int remount_proc_ro : 1;
-		int no_new_privs : 1;
-		int seccomp_filter : 1;
-		int seccomp_filter_tsync : 1;
-		int seccomp_filter_logging : 1;
-		int seccomp_filter_allow_speculation : 1;
-		int chroot : 1;
-		int pivot_root : 1;
-		int mount_dev : 1;
-		int mount_tmp : 1;
-		int do_init : 1;
-		int run_as_init : 1;
-		int pid_file : 1;
-		int cgroups : 1;
-		int alt_syscall : 1;
-		int reset_signal_mask : 1;
-		int reset_signal_handlers : 1;
-		int close_open_fds : 1;
-		int new_session_keyring : 1;
-		int forward_signals : 1;
-		int setsid : 1;
+		bool uid : 1;
+		bool gid : 1;
+		bool inherit_suppl_gids : 1;
+		bool set_suppl_gids : 1;
+		bool keep_suppl_gids : 1;
+		bool use_caps : 1;
+		bool capbset_drop : 1;
+		bool set_ambient_caps : 1;
+		bool vfs : 1;
+		bool enter_vfs : 1;
+		bool pids : 1;
+		bool ipc : 1;
+		bool uts : 1;
+		bool net : 1;
+		bool enter_net : 1;
+		bool ns_cgroups : 1;
+		bool userns : 1;
+		bool disable_setgroups : 1;
+		bool seccomp : 1;
+		bool remount_proc_ro : 1;
+		bool no_new_privs : 1;
+		bool seccomp_filter : 1;
+		bool seccomp_filter_tsync : 1;
+		bool seccomp_filter_logging : 1;
+		bool seccomp_filter_allow_speculation : 1;
+		bool chroot : 1;
+		bool pivot_root : 1;
+		bool mount_dev : 1;
+		bool mount_tmp : 1;
+		bool do_init : 1;
+		bool run_as_init : 1;
+		bool pid_file : 1;
+		bool cgroups : 1;
+		bool alt_syscall : 1;
+		bool reset_signal_mask : 1;
+		bool reset_signal_handlers : 1;
+		bool close_open_fds : 1;
+		bool new_session_keyring : 1;
+		bool forward_signals : 1;
+		bool setsid : 1;
 	} flags;
 	uid_t uid;
 	gid_t gid;
@@ -187,6 +196,7 @@ struct minijail {
 	struct minijail_remount *remounts_head;
 	struct minijail_remount *remounts_tail;
 	size_t tmpfs_size;
+	bool using_minimalistic_mountns;
 	struct fs_rule *fs_rules_head;
 	struct fs_rule *fs_rules_tail;
 	char *cgroups[MAX_CGROUPS];
@@ -313,6 +323,18 @@ int add_fs_restriction_path(struct minijail *j,
 	return 0;
 }
 
+bool mount_has_bind_flag(struct mountpoint *m) {
+	return !!(m->flags & MS_BIND);
+}
+
+bool mount_has_readonly_flag(struct mountpoint *m) {
+	return !!(m->flags & MS_RDONLY);
+}
+
+bool mount_events_allowed(struct mountpoint *m) {
+	return !!(m->flags & MS_SHARED) || !!(m->flags & MS_SLAVE);
+}
+
 /*
  * Strip out flags meant for the child.
  * We keep things that are inherited across execve(2).
@@ -355,6 +377,7 @@ struct minijail API *minijail_new(void)
 	struct minijail *j = calloc(1, sizeof(struct minijail));
 	if (j) {
 		j->remount_mode = MS_PRIVATE;
+		j->using_minimalistic_mountns = false;
 	}
 	return j;
 }
@@ -503,6 +526,50 @@ void API minijail_log_seccomp_filter_failures(struct minijail *j)
 		warn("non-debug build: ignoring request to enable seccomp "
 		     "logging");
 	}
+}
+
+void API minijail_set_using_minimalistic_mountns(struct minijail *j)
+{
+	j->using_minimalistic_mountns = true;
+}
+
+void API minijail_add_minimalistic_mountns_fs_rules(struct minijail *j)
+{
+	struct mountpoint *m = j->mounts_head;
+	bool landlock_enabled_by_profile = false;
+	if (!j->using_minimalistic_mountns)
+		return;
+
+	/* Apply Landlock rules. */
+	while (m) {
+		landlock_enabled_by_profile = true;
+		minijail_add_fs_restriction_rx(j, m->dest);
+		/* Allow rw if mounted as writable, or mount flags allow mount events.*/
+		if (!mount_has_readonly_flag(m) || mount_events_allowed(m))
+			minijail_add_fs_restriction_rw(j, m->dest);
+		m = m->next;
+	}
+	if (landlock_enabled_by_profile) {
+		minijail_enable_default_fs_restrictions(j);
+		minijail_add_fs_restriction_edit(j, "/dev");
+		minijail_add_fs_restriction_ro(j, "/proc");
+		if (j->flags.vfs)
+			minijail_add_fs_restriction_rw(j, "/tmp");
+	}
+}
+
+void API minijail_enable_default_fs_restrictions(struct minijail *j)
+{
+	// Common library locations.
+	minijail_add_fs_restriction_rx(j, "/lib");
+	minijail_add_fs_restriction_rx(j, "/lib64");
+	minijail_add_fs_restriction_rx(j, "/usr/lib");
+	minijail_add_fs_restriction_rx(j, "/usr/lib64");
+	// Common locations for services invoking Minijail.
+	minijail_add_fs_restriction_rx(j, "/bin");
+	minijail_add_fs_restriction_rx(j, "/sbin");
+	minijail_add_fs_restriction_rx(j, "/usr/sbin");
+	minijail_add_fs_restriction_rx(j, "/usr/bin");
 }
 
 void API minijail_use_caps(struct minijail *j, uint64_t capmask)
@@ -867,6 +934,13 @@ int API minijail_add_fs_restriction_advanced_rw(struct minijail *j,
 		ACCESS_FS_ROUGHLY_READ | ACCESS_FS_ROUGHLY_FULL_WRITE);
 }
 
+int API minijail_add_fs_restriction_edit(struct minijail *j,
+						const char *path)
+{
+	return !add_fs_restriction_path(j, path,
+		ACCESS_FS_ROUGHLY_READ | ACCESS_FS_ROUGHLY_EDIT);
+}
+
 static bool is_valid_bind_path(const char *path)
 {
 	if (!block_symlinks_in_bindmount_paths()) {
@@ -987,12 +1061,20 @@ int API minijail_bind(struct minijail *j, const char *src, const char *dest,
 {
 	unsigned long flags = MS_BIND;
 
+	/*
+	 * Check for symlinks in bind-mount source paths to warn the user early.
+	 * Minijail will perform one final check immediately before the mount()
+	 * call.
+	 */
 	if (!is_valid_bind_path(src)) {
 		warn("src '%s' is not a valid bind mount path", src);
 		return -ELOOP;
 	}
 
-	/* |dest| might not yet exist. */
+	/*
+	 * Symlinks in |dest| are blocked by the ChromiumOS LSM:
+	 * <kernel>/security/chromiumos/lsm.c#77
+	 */
 
 	if (!writeable)
 		flags |= MS_RDONLY;
@@ -1800,7 +1882,7 @@ static int mount_one(const struct minijail *j, struct mountpoint *m,
 	int ret;
 	char *dest;
 	bool do_remount = false;
-	bool has_bind_flag = !!(m->flags & MS_BIND);
+	bool has_bind_flag = mount_has_bind_flag(m);
 	bool has_remount_flag = !!(m->flags & MS_REMOUNT);
 	unsigned long original_mnt_flags = 0;
 
@@ -1859,6 +1941,19 @@ static int mount_one(const struct minijail *j, struct mountpoint *m,
 			original_mnt_flags &=
 			    (MS_USER_SETTABLE_MASK & ~MS_RDONLY);
 		}
+	}
+
+	/*
+	 * Do a final check for symlinks in |m->src|.
+	 * |m->src| will only contain a valid path when purely bind-mounting
+	 * (but not when remounting a bind mount).
+	 *
+	 * Short of having a version of mount(2) that can take fd's, this is the
+	 * smallest we can make the TOCTOU window.
+	 */
+	if (has_bind_flag && !has_remount_flag && !is_valid_bind_path(m->src)) {
+		warn("src '%s' is not a valid bind mount path", m->src);
+		goto error;
 	}
 
 	ret = mount(m->src, dest, m->type, m->flags, m->data);
@@ -2007,8 +2102,14 @@ static int mount_tmp(const struct minijail *j)
 		pdie("tmpfs size spec error");
 	else if ((size_t)ret >= sizeof(data))
 		pdie("tmpfs size spec too large");
-	return mount("none", "/tmp", "tmpfs", MS_NODEV | MS_NOEXEC | MS_NOSUID,
-		     data);
+
+	unsigned long flags = MS_NODEV | MS_NOEXEC | MS_NOSUID;
+
+	if (block_symlinks_in_noninit_mountns_tmp()) {
+		flags |= MS_NOSYMFOLLOW;
+	}
+
+	return mount("none", "/tmp", "tmpfs", flags, data);
 }
 
 static int remount_proc_readonly(const struct minijail *j)

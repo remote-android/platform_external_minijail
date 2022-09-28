@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium OS Authors. All rights reserved.
+// Copyright 2017 The ChromiumOS Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -924,6 +924,9 @@ impl Minijail {
     ///
     /// This Function may abort in the child on error because a partially
     /// entered jail isn't recoverable.
+    ///
+    /// Once this is invoked the object is no longer usable, after this call
+    /// this minijail object is invalid.
     pub unsafe fn fork(&self, inheritable_fds: Option<&[RawFd]>) -> Result<pid_t> {
         let m: Vec<(RawFd, RawFd)> = inheritable_fds
             .unwrap_or(&[])
@@ -1004,7 +1007,8 @@ impl Minijail {
 }
 
 impl Drop for Minijail {
-    /// Frees the Minijail created in Minijail::new.
+    /// Frees the Minijail created in Minijail::new. This will not terminate the
+    /// minijailed process.
     fn drop(&mut self) {
         unsafe {
             // Destroys the minijail's memory.  It is safe to do here because all references to
@@ -1193,7 +1197,7 @@ fi
     #[test]
     fn runnable_fd_success() {
         let bin_file = File::open("/bin/true").unwrap();
-        // On Chrome OS targets /bin/true is actually a script, so drop CLOEXEC to prevent ENOENT.
+        // On ChromeOS targets /bin/true is actually a script, so drop CLOEXEC to prevent ENOENT.
         clear_cloexec(&bin_file).unwrap();
 
         let j = Minijail::new().unwrap();
