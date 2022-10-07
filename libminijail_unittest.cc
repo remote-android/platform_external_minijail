@@ -1,4 +1,4 @@
-/* Copyright 2016 The Chromium OS Authors. All rights reserved.
+/* Copyright 2016 The ChromiumOS Authors
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  *
@@ -101,6 +101,21 @@ std::map<std::string, std::string> GetNamespaces(
     namespaces.emplace(namespace_name, std::string(buf, len));
   }
   return namespaces;
+}
+
+void set_preload_path(minijail *j) {
+#if defined(__ANDROID__)
+  // libminijailpreload.so isn't available in android, so skip trying to load
+  // it. Even without the preload, all the test cases either pass or are skipped
+  // for other reasons.
+  return;
+#endif
+  // We need to get the absolute path because entering a new mntns will
+  // implicitly chdir(/) for us.
+  char *preload_path = realpath(kPreloadPath, nullptr);
+  ASSERT_NE(preload_path, nullptr);
+  minijail_set_preload_path(j, preload_path);
+  free(preload_path);
 }
 
 }  // namespace
@@ -571,7 +586,7 @@ TEST(Test, minijail_run_env_pid_pipes) {
     GTEST_SKIP();
 
   ScopedMinijail j(minijail_new());
-  minijail_set_preload_path(j.get(), kPreloadPath);
+  set_preload_path(j.get());
 
   char *argv[4];
   argv[0] = const_cast<char*>(kCatPath);
@@ -634,7 +649,7 @@ TEST(Test, minijail_run_fd_env_pid_pipes) {
     GTEST_SKIP();
 
   ScopedMinijail j(minijail_new());
-  minijail_set_preload_path(j.get(), kPreloadPath);
+  set_preload_path(j.get());
 
   char *argv[4];
   argv[0] = const_cast<char*>(kShellPath);
@@ -724,7 +739,7 @@ TEST(Test, minijail_run_env_pid_pipes_with_local_preload) {
   ASSERT_EQ(setenv("TEST_PARENT", "test", 1 /*overwrite*/), 0);
 
   // Use the preload library from this test build.
-  ASSERT_EQ(0, minijail_set_preload_path(j.get(), "./libminijailpreload.so"));
+  set_preload_path(j.get());
 
   int child_stderr;
   mj_run_ret =
@@ -1069,7 +1084,7 @@ namespace {
 
 // Tests that require userns access.
 // Android unit tests don't currently support entering user namespaces as
-// unprivileged users due to having an older kernel.  Chrome OS unit tests
+// unprivileged users due to having an older kernel.  ChromeOS unit tests
 // don't support it either due to being in a chroot environment (see man 2
 // clone for more information about failure modes with the CLONE_NEWUSER flag).
 class NamespaceTest : public ::testing::Test {
@@ -1178,7 +1193,7 @@ TEST_F(NamespaceTest, test_namespaces) {
        {minijail_run_pid_pipes, minijail_run_pid_pipes_no_preload}) {
     for (const auto& test_function : test_functions) {
       ScopedMinijail j(minijail_new());
-      minijail_set_preload_path(j.get(), kPreloadPath);
+      set_preload_path(j.get());
 
       // Enter all the namespaces we can.
       minijail_namespace_cgroups(j.get());
@@ -1273,11 +1288,7 @@ TEST_F(NamespaceTest, test_enter_ns) {
       // Finally enter those namespaces.
       j = minijail_new();
 
-      // We need to get the absolute path because entering a new mntns will
-      // implicitly chdir(/) for us.
-      char *path = realpath(kPreloadPath, nullptr);
-      ASSERT_NE(nullptr, path);
-      minijail_set_preload_path(j, path);
+      set_preload_path(j);
 
       minijail_namespace_net(j);
       minijail_namespace_vfs(j);

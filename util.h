@@ -1,5 +1,5 @@
 /* util.h
- * Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
+ * Copyright 2012 The ChromiumOS Authors
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  *
@@ -224,6 +224,15 @@ static inline bool seccomp_default_ret_log(void)
 static inline bool block_symlinks_in_bindmount_paths(void)
 {
 #if defined(BLOCK_SYMLINKS_IN_BINDMOUNT_PATHS)
+	return true;
+#else
+	return false;
+#endif
+}
+
+static inline bool block_symlinks_in_noninit_mountns_tmp(void)
+{
+#if defined(BLOCK_SYMLINKS_IN_NONINIT_MOUNTNS_TMP)
 	return true;
 #else
 	return false;
