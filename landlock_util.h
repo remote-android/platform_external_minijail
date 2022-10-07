@@ -1,4 +1,4 @@
-/* Copyright 2022 The ChromiumOS Authors.
+/* Copyright 2022 The ChromiumOS Authors
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
@@ -49,6 +49,11 @@ extern "C" {
 	LANDLOCK_ACCESS_FS_REMOVE_FILE | \
 	LANDLOCK_ACCESS_FS_MAKE_DIR | \
 	LANDLOCK_ACCESS_FS_MAKE_REG)
+
+#define ACCESS_FS_ROUGHLY_EDIT ( \
+	LANDLOCK_ACCESS_FS_WRITE_FILE | \
+	LANDLOCK_ACCESS_FS_REMOVE_DIR | \
+	LANDLOCK_ACCESS_FS_REMOVE_FILE)
 
 #define ACCESS_FS_ROUGHLY_FULL_WRITE ( \
 	LANDLOCK_ACCESS_FS_WRITE_FILE | \

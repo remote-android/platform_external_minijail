@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 The Chromium OS Authors. All rights reserved.
+/* Copyright 2014 The ChromiumOS Authors
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
@@ -86,4 +86,9 @@
 #elif __arm64__
 #define __NR_rseq 293
 #endif
+
+#ifndef __NR_clone3
+#define __NR_clone3 435
+#endif
+
 #endif /* __NR_rseq */

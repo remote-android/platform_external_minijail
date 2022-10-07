@@ -1,4 +1,4 @@
-/* Copyright 2018 The Chromium OS Authors. All rights reserved.
+/* Copyright 2018 The ChromiumOS Authors
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
@@ -403,6 +403,7 @@ static void use_profile(struct minijail *j, const char *profile,
 			*tmp_size = DEFAULT_TMP_SIZE;
 		}
 		minijail_remount_proc_readonly(j);
+		minijail_set_using_minimalistic_mountns(j);
 		use_pivot_root(j, DEFAULT_PIVOT_ROOT, pivot_root, chroot);
 	} else
 		errx(1, "Unrecognized profile name '%s'", profile);
@@ -1024,16 +1025,7 @@ int parse_args(struct minijail *j, int argc, char *const argv[],
 			*preload_path = optarg;
 			break;
 		case OPT_FS_DEFAULT_PATHS:
-			// Common library locations.
-			minijail_add_fs_restriction_rx(j, "/lib");
-			minijail_add_fs_restriction_rx(j, "/lib64");
-			minijail_add_fs_restriction_rx(j, "/usr/lib");
-			minijail_add_fs_restriction_rx(j, "/usr/lib64");
-			// Common locations for services invoking Minijail.
-			minijail_add_fs_restriction_rx(j, "/bin");
-			minijail_add_fs_restriction_rx(j, "/sbin");
-			minijail_add_fs_restriction_rx(j, "/usr/sbin");
-			minijail_add_fs_restriction_rx(j, "/usr/bin");
+			minijail_enable_default_fs_restrictions(j);
 			break;
 		case OPT_FS_PATH_RX:
 			minijail_add_fs_restriction_rx(j, optarg);
