@@ -1,11 +1,12 @@
 /* unittest_util.h
- * Copyright 2022 The ChromiumOS Authors. All rights reserved.
+ * Copyright 2022 The ChromiumOS Authors
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  *
  * Utility functions for unit tests.
  */
 
+#include <errno.h>
 #include <ftw.h>
 #include <stdio.h>
 #include <stdlib.h>
