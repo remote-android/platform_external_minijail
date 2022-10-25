@@ -22,3 +22,23 @@ rust_library {
         "com.android.virt",
     ],
 }
+
+rust_test {
+    name: "minijail_test_src_lib",
+    host_supported: true,
+    crate_name: "minijail",
+    cargo_env_compat: true,
+    cargo_pkg_version: "0.2.3",
+    srcs: ["src/lib.rs"],
+    test_suites: ["general-tests"],
+    auto_gen_config: true,
+    test_options: {
+        unit_test: true,
+    },
+    edition: "2018",
+    rustlibs: [
+        "liblibc",
+        "libminijail_sys",
+    ],
+    data: ["src/test_filter.policy"],
+}
