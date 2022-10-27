@@ -1,6 +1,10 @@
 {
   "run": true,
   "device": true,
+  "tests": true,
+  "test-data": [
+    "src/lib.rs=src/test_filter.policy"
+  ],
   "apex-available": [
     "//apex_available:platform",
     "com.android.compos",
