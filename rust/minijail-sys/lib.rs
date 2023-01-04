@@ -18,15 +18,15 @@
 //
 // Generated in CrOS SDK chroot with:
 // bindgen --default-enum-style rust \
-//         --blacklist-type '__rlim64_t' \
+//         --blocklist-type '__rlim64_t' \
 //         --raw-line 'pub type __rlim64_t = u64;' \
-//         --blacklist-type '__u\d{1,2}' \
+//         --blocklist-type '__u\d{1,2}' \
 //         --raw-line 'pub type __u8 = u8;' \
 //         --raw-line 'pub type __u16 = u16;' \
 //         --raw-line 'pub type __u32 = u32;' \
-//         --blacklist-type '__uint64_t' \
-//         --whitelist-function '^minijail_.*' \
-//         --whitelist-var '^MINIJAIL_.*' \
+//         --blocklist-type '__uint64_t' \
+//         --allowlist-function '^minijail_.*' \
+//         --allowlist-var '^MINIJAIL_.*' \
 //         --no-layout-tests \
 //         --output libminijail.rs \
 //         libminijail.h -- \
