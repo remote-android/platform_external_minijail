@@ -92,3 +92,13 @@
 #endif
 
 #endif /* __NR_rseq */
+
+#ifndef __NR_membarrier
+#ifdef __x86_64__
+#define __NR_membarrier 324
+#elif __i386__
+#define __NR_membarrier 375
+#elif __arm64__
+#define __NR_membarrier 283
+#endif
+#endif /* __NR_membarrier */
