@@ -86,12 +86,11 @@
 #elif __arm64__
 #define __NR_rseq 293
 #endif
+#endif /* __NR_rseq */
 
 #ifndef __NR_clone3
 #define __NR_clone3 435
 #endif
-
-#endif /* __NR_rseq */
 
 #ifndef __NR_membarrier
 #ifdef __x86_64__
